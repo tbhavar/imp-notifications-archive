@@ -7,7 +7,6 @@ on:
         description: 'The direct URL to the GST Notification PDF'
         required: true
         type: string
-      # New Optional Inputs for manual override:
       manual_date:
         description: 'Optional: Manually provide the date (e.g., 25/11/2025) to skip PDF parsing.'
         required: false
@@ -23,11 +22,16 @@ on:
 
 jobs:
   download_and_commit:
+    # --- CRITICAL FIX: ADD THIS PERMISSIONS BLOCK ---
+    permissions:
+      contents: write # This grants the necessary push rights
+    # --------------------------------------------------
     runs-on: ubuntu-latest
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
         with:
+          # Note: The token is not explicitly needed here, but the permissions line above is key.
           token: ${{ secrets.GITHUB_TOKEN }}
           
       - name: 🐍 Set up Python
@@ -39,8 +43,6 @@ jobs:
         run: pip install -r requirements.txt
         
       - name: ⚙️ Run Python Script to Process PDF
-        # Now passing all three inputs to the Python script
-        # The script will decide whether to use the manual inputs or read the PDF
         run: |
           python gst_processor.py \
             "${{ github.event.inputs.pdf_url }}" \
