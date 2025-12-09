@@ -36,28 +36,63 @@ def download_and_read_pdf(url):
 
 def parse_gst_details(text):
     """
-    Parses the extracted text to find the Notification Date and Subject.
-    NOTE: Regex is highly dependent on the exact format.
-    GST Notifications usually have a date and a brief subject/purpose.
+    Parses the extracted text to find the Notification Date and Subject using more robust patterns.
     """
-    # 1. Date Extraction: Looks for DD/MM/YYYY or DD-MM-YYYY near keywords like 'Dated' or 'Notification No.'
+    raw_date = None
+    subject = "Subject_Not_Found"
+    
+    # --- 1. Robust Date Extraction ---
+    # Try multiple common patterns for official documents:
+    # Pattern 1: DD/MM/YYYY or DD-MM-YYYY near 'Dated' or 'No.'
     # It attempts to be flexible with separators (., /, -) and captures the date string.
-    date_match = re.search(r'(?:Dated|Date|No\.\s*)\s*[:\s]*(\d{1,2}[./-]\d{1,2}[./-]\d{4})', text)
-    raw_date = date_match.group(1).strip() if date_match else None
+    date_pattern_1 = re.compile(r'(?:Dated|Date|No\.\s*)\s*[:\s]*(\d{1,2}[./-]\d{1,2}[./-]\d{4})', re.IGNORECASE)
+    # Pattern 2: DDth day of MONTH, YEAR (e.g., 25th November, 2025)
+    date_pattern_2 = re.compile(r'(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December),\s+(\d{4})', re.IGNORECASE)
+    
+    date_match = date_pattern_1.search(text)
+    if date_match:
+        raw_date = date_match.group(1).strip()
+    else:
+        date_match_2 = date_pattern_2.search(text)
+        if date_match_2:
+            # Reformat the descriptive date into DD/MM/YYYY for consistent parsing later
+            day, month_name, year = date_match_2.groups()
+            month_number = datetime.strptime(month_name, '%B').month
+            raw_date = f"{int(day):02d}/{month_number:02d}/{year}"
 
-    # 2. Subject Extraction: Looks for a line or a large paragraph typically near the top.
-    # We will simply take a section of the text for the subject, as official PDFs vary.
-    # This example takes the first non-empty line of text *after* a generic header.
+
+    # --- 2. Robust Subject/Purpose Extraction ---
     
-    # We'll split the text and look for the first non-header-like line to use as the subject
+    # Get lines of text, skipping empty ones
     lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+    # 2a. Search for a line that is long and in ALL CAPS (GST subjects are often bolded/capitalized)
+    for line in lines[:10]: # Check first 10 significant lines
+        if len(line) > 30 and line == line.upper() and 'GOVERNMENT' not in line:
+            subject = line
+            break
+            
+    # 2b. Fallback: Take the text immediately following the main header
+    if subject == "Subject_Not_Found":
+        # Attempt to split the document after a known header phrase
+        relevant_text = text.split("GOVERNMENT OF INDIA", 1)[-1] 
+        
+        # Take the first 3 relevant, non-header-like lines, and combine them for the subject
+        fallback_lines = [
+            line.strip() for line in relevant_text.split('\n') 
+            if line.strip() and len(line) > 10 and 'Notification No.' not in line
+        ][:3]
+        
+        if fallback_lines:
+             subject = " ".join(fallback_lines)
+
+
+    # --- 3. Clean and Format Filename Components ---
     
-    # Simple logic: skip lines that are too short (like page numbers) or generic headers
-    subject = next((line for line in lines if len(line) > 20 and 'Notification No.' not in line), "Generic_Subject")
-    
-    # Clean up the subject for use in a filename (remove special characters)
+    # Clean up the subject for use in a filename (remove non-alphanumeric characters except space/hyphen)
     subject = re.sub(r'[^\w\s-]', '', subject).strip()
-    subject = re.sub(r'\s+', '_', subject)[:50] # Replace spaces with underscores and truncate
+    # Replace spaces with underscores and truncate to a reasonable length (e.g., 80 characters)
+    subject = re.sub(r'\s+', '_', subject)[:80].rstrip('_') 
 
     return raw_date, subject
 
@@ -102,7 +137,7 @@ if __name__ == "__main__":
     if pdf_text:
         raw_date, subject = parse_gst_details(pdf_text)
         
-        if raw_date and subject:
+        if raw_date and subject and subject != "Subject_Not_Found":
             # Attempt to parse the date into YYYY-MM-DD format for proper sorting
             try:
                 # Assuming the most common Indian date format (DD/MM/YYYY)
@@ -119,6 +154,7 @@ if __name__ == "__main__":
             create_and_save_pdf(pdf_url, new_filename)
         else:
             print("Error: Could not extract both date and subject from PDF.")
+            print(f"Date found: {raw_date}, Subject found: {subject}")
             sys.exit(1)
     else:
         print("Script terminated due to PDF download/read error.")
