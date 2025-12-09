@@ -1,12 +1,20 @@
 name: 📥 GST PDF Automator
 
-# This allows you to run the workflow manually and provide input
 on:
   workflow_dispatch:
     inputs:
       pdf_url:
         description: 'The direct URL to the GST Notification PDF'
         required: true
+        type: string
+      # New Optional Inputs for manual override:
+      manual_date:
+        description: 'Optional: Manually provide the date (e.g., 25/11/2025) to skip PDF parsing.'
+        required: false
+        type: string
+      manual_subject:
+        description: 'Optional: Manually provide the subject/purpose (e.g., CGST_Rate_Change).'
+        required: false
         type: string
       commit_message:
         description: 'Optional: Custom commit message'
@@ -19,7 +27,6 @@ jobs:
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
-        # We need the token here to allow the commit/push step later
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           
@@ -32,17 +39,19 @@ jobs:
         run: pip install -r requirements.txt
         
       - name: ⚙️ Run Python Script to Process PDF
-        # Pass the user-provided URL as a command-line argument to the script
-        run: python gst_processor.py ${{ github.event.inputs.pdf_url }}
+        # Now passing all three inputs to the Python script
+        # The script will decide whether to use the manual inputs or read the PDF
+        run: |
+          python gst_processor.py \
+            "${{ github.event.inputs.pdf_url }}" \
+            "${{ github.event.inputs.manual_date }}" \
+            "${{ github.event.inputs.manual_subject }}"
 
       - name: 💾 Commit and Push Renamed File
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          # Only commit if there are changes (i.e., a new file was saved)
           commit_message: ${{ github.event.inputs.commit_message }} - ${{ github.event.inputs.pdf_url }}
-          # The files in the 'notifications' folder will be added
           file_pattern: notifications/*.pdf
-          # Set the user for the commit
           commit_user_name: GST Bot
           commit_user_email: actions@github.com
           commit_author: GST Bot <actions@github.com>
